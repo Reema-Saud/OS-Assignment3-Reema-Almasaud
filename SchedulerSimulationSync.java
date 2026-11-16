@@ -152,141 +152,137 @@ public static long getTotalServiceTime() {
         serviceTimeLock.unlock();
     }
 }
+}
 
 // ⚠️ THE READY QUEUE: shared by ALL the CPU threads ⚠️
 // In Assignment 1 only the main thread used the queue. Now several CPUs poll and re-enqueue processes
 // at the same time, so every access to `list` and `map` is a critical section.
 class ReadyQueue {
-    private final LinkedList<Thread> list = new LinkedList<>();   // FIFO queue of threads
-    private final Map<Thread, Process> map = new HashMap<>();     // thread -> process (same idea as Assignment 1)
-    // Lock protects the shared ready queue and its map
-    private final ReentrantLock queueLock = new ReentrantLock();
-    // TODO Feature 1: declare the lock protecting `list` and `map` here
+    private final LinkedList<Thread> list = new LinkedList<>();
+    private final Map<Thread, Process> map = new HashMap<>();
 
-    // TODO Feature 3: declare the counting semaphore that counts the processes waiting in the ready queue here
-    // Counts how many processes are waiting in the ready queue
+    // Feature 1: Lock
+    private final ReentrantLock queueLock = new ReentrantLock();
+
+    // Feature 3: Semaphore
     private final Semaphore availableProcesses = new Semaphore(0);
 
-    // Prevents sending the shutdown signal more than once
     private boolean shutdownSignalled = false;
-    // Add a process to the ready queue (new process, or a process that did not finish its quantum)
+
+    // Add process
     public void add(Process process) {
-        // TODO Feature 1: protect this critical section
-    Thread thread = new Thread(process);
 
-    queueLock.lock();
-    try {
-        list.add(thread);
-        map.put(thread, process);
+        Thread thread = new Thread(process);
 
-    } finally {
-        queueLock.unlock();
-    }
-       // One additional process is available
+        queueLock.lock();
+        try {
+            list.add(thread);
+            map.put(thread, process);
+
+        } finally {
+            queueLock.unlock();
+        }
+
+        // Notify that one process is available
         availableProcesses.release();
 
-}
-
-    System.out.println(Colors.BLUE + " ➕ " + Colors.BOLD
-            + Colors.CYAN + process.getName() + Colors.RESET
-            + Colors.BLUE + " (Priority: " + process.getPriority()
-            + ") added to ready queue" + Colors.RESET
-            + " │ Remaining: " + Colors.YELLOW
-            + process.getRemainingTime() + "ms" + Colors.RESET
-            + " of " + process.getBurstTime() + "ms");
-}
-
-        // TODO Feature 3: signal that one more process is available in the queue
-
-        System.out.println(Colors.BLUE + "  ➕ " + Colors.BOLD + Colors.CYAN + process.getName() + Colors.RESET +
-                Colors.BLUE + " (Priority: " + process.getPriority() + ") added to ready queue" + Colors.RESET +
-                " │ Remaining: " + Colors.YELLOW + process.getRemainingTime() + "ms" + Colors.RESET +
-                " of " + process.getBurstTime() + "ms");
+        System.out.println(Colors.BLUE + "  ➕ " + Colors.BOLD
+                + Colors.CYAN + process.getName() + Colors.RESET
+                + Colors.BLUE + " (Priority: " + process.getPriority()
+                + ") added to ready queue" + Colors.RESET
+                + " │ Remaining: " + Colors.YELLOW
+                + process.getRemainingTime() + "ms" + Colors.RESET
+                + " of " + process.getBurstTime() + "ms");
     }
 
-    // Remove and return the thread at the head of the queue (or null if the queue is empty)
+    // Remove process
     public Thread poll() {
-        // TODO Feature 1: protect this critical section 
-    queueLock.lock();
-    try {
 
-        if (list.isEmpty()) {
-            return null;
-        }
+        queueLock.lock();
+        try {
 
-        Thread head = list.getFirst();
-
-        RaceWindow.pause();
-
-        list.removeFirst();
-
-        return head;
-
-    } finally {
-        queueLock.unlock();
-    }
-}
-    public Process processOf(Thread thread) {
-        // TODO Feature 1: protect this access
-    queueLock.lock();
-    try {
-        return map.get(thread);
-
-    } finally {
-        queueLock.unlock();
-    }
-}
-    }
-
-    // Names of the processes currently waiting in the queue (used to display the ready queue)
-    public String snapshot() {
-        // TODO Feature 1: protect this critical section
-    queueLock.lock();
-    try {
-
-        StringBuilder sb = new StringBuilder();
-
-        for (Thread t : list) {
-
-            if (sb.length() > 0) {
-                sb.append(" → ");
+            if (list.isEmpty()) {
+                return null;
             }
 
-            sb.append(map.get(t).getName());
+            Thread head = list.getFirst();
+
+            RaceWindow.pause();
+
+            list.removeFirst();
+
+            return head;
+
+        } finally {
+            queueLock.unlock();
+        }
+    }
+
+    // Get process
+    public Process processOf(Thread thread) {
+
+        queueLock.lock();
+        try {
+            return map.get(thread);
+
+        } finally {
+            queueLock.unlock();
+        }
+    }
+
+    // Display ready queue
+    public String snapshot() {
+
+        queueLock.lock();
+        try {
+
+            StringBuilder sb = new StringBuilder();
+
+            for (Thread t : list) {
+
+                if (sb.length() > 0) {
+                    sb.append(" → ");
+                }
+
+                sb.append(map.get(t).getName());
+            }
+
+            return sb.length() == 0 ? "empty" : sb.toString();
+
+        } finally {
+            queueLock.unlock();
+        }
+    }
+
+    // Wait for available process
+    public void acquireProcessPermit() throws InterruptedException {
+
+        availableProcesses.acquire();
+    }
+
+    // Wake up CPUs during shutdown
+    public void signalShutdown() {
+
+        boolean shouldSignal = false;
+
+        queueLock.lock();
+        try {
+
+            if (!shutdownSignalled) {
+                shutdownSignalled = true;
+                shouldSignal = true;
+            }
+
+        } finally {
+            queueLock.unlock();
         }
 
-        return sb.length() == 0 ? "empty" : sb.toString();
-
-    } finally {
-        queueLock.unlock();
-    }
-}
-// Wait until a process becomes available
-public void acquireProcessPermit() throws InterruptedException {
-    availableProcesses.acquire();
-}
-
-// Wake up all CPUs when all processes are completed
-public void signalShutdown() {
-
-    boolean shouldSignal = false;
-
-    queueLock.lock();
-    try {
-
-        if (!shutdownSignalled) {
-            shutdownSignalled = true;
-            shouldSignal = true;
+        if (shouldSignal) {
+            availableProcesses.release(SharedStats.totalCPUs);
         }
-
-    } finally {
-        queueLock.unlock();
-    }
-
-    if (shouldSignal) {
-        availableProcesses.release(SharedStats.totalCPUs);
     }
 }
+
 // Class representing a process (same as Assignment 1) - executes ONE time quantum per thread start
 class Process implements Runnable {
     private final String name;
@@ -387,100 +383,80 @@ class CpuWorker extends Thread {
         this.readyQueue = readyQueue;
     }
 
-   @Override
-public void run() {
+    @Override
+    public void run() {
 
-    while (true) {
+        while (true) {
 
-        try {
+            try {
 
-            // Wait until a process is available
-            readyQueue.acquireProcessPermit();
+                // Wait until a process is available
+                readyQueue.acquireProcessPermit();
 
-        } catch (InterruptedException e) {
+            } catch (InterruptedException e) {
 
-            Thread.currentThread().interrupt();
-            return;
-        }
+                Thread.currentThread().interrupt();
+                return;
+            }
 
-        // Stop if all processes are completed
-        if (SharedStats.getCompletedProcessCount()
-                >= SharedStats.totalProcesses) {
+            // Stop if all processes are completed
+            if (SharedStats.getCompletedProcessCount()
+                    >= SharedStats.totalProcesses) {
 
-            return;
-        }
+                return;
+            }
 
-        // Get one process from the ready queue
-        Thread thread = readyQueue.poll();
+            // Get one process from the ready queue
+            Thread thread = readyQueue.poll();
 
-        if (thread == null) {
-            continue;
-        }
+            if (thread == null) {
+                continue;
+            }
 
-        Process process = readyQueue.processOf(thread);
-
-        System.out.println(
-                Colors.MAGENTA + " ┌─ [CPU-" + cpuId
-                + "] picks " + Colors.BRIGHT_CYAN
-                + process.getName()
-                + Colors.MAGENTA + " │ Ready queue: ["
-                + Colors.BRIGHT_WHITE
-                + readyQueue.snapshot()
-                + Colors.MAGENTA + "]"
-                + Colors.RESET
-        );
-
-        process.setCpuId(cpuId);
-
-        // Execute one time quantum
-        thread.start();
-
-        try {
-
-            thread.join();
-
-        } catch (InterruptedException e) {
-
-            Thread.currentThread().interrupt();
-            return;
-        }
-
-        // Re-add the process if it is not finished
-        if (!process.isFinished()) {
-
-            readyQueue.add(process);
-        }
-
-        // Wake up waiting CPUs after the last process finishes
-        if (SharedStats.getCompletedProcessCount()
-                >= SharedStats.totalProcesses) {
-
-            readyQueue.signalShutdown();
-        }
-    }
-}
             Process process = readyQueue.processOf(thread);
-            System.out.println(Colors.MAGENTA + "  ┌─ [CPU-" + cpuId + "] picks " + Colors.BRIGHT_CYAN +
-                    process.getName() + Colors.MAGENTA + " │ Ready queue: [" + Colors.BRIGHT_WHITE +
-                    readyQueue.snapshot() + Colors.MAGENTA + "]" + Colors.RESET);
+
+            System.out.println(
+                    Colors.MAGENTA + " ┌─ [CPU-" + cpuId
+                    + "] picks " + Colors.BRIGHT_CYAN
+                    + process.getName()
+                    + Colors.MAGENTA + " │ Ready queue: ["
+                    + Colors.BRIGHT_WHITE
+                    + readyQueue.snapshot()
+                    + Colors.MAGENTA + "]"
+                    + Colors.RESET
+            );
 
             process.setCpuId(cpuId);
-            thread.start();                      // run one quantum
+
+            // Execute one time quantum
+            thread.start();
+
             try {
-                thread.join();                   // wait for the end of the quantum
+
+                thread.join();
+
             } catch (InterruptedException e) {
-                System.out.println("CPU-" + cpuId + " interrupted.");
+
+                Thread.currentThread().interrupt();
+                return;
             }
 
+            // Re-add process if not finished
             if (!process.isFinished()) {
-                readyQueue.add(process);         // not finished: back to the ready queue
+
+                readyQueue.add(process);
             }
 
-            // TODO Feature 3: when the LAST process has completed, wake up the CPUs that are blocked on the
-            // semaphore so that they can terminate (otherwise they would wait forever!)
+            // Wake up CPUs after all processes finish
+            if (SharedStats.getCompletedProcessCount()
+                    >= SharedStats.totalProcesses) {
+
+                readyQueue.signalShutdown();
+            }
         }
     }
 }
+
 
 public class SchedulerSimulationSync {
     public static void main(String[] args) {
